@@ -1,0 +1,7 @@
+cloudscraper
+requests
+fake-useragent
+httpx[http2]
+python-telegram-bot==20.7
+fake-useragent==1.5.1
+cloudscraper==1.2.71
